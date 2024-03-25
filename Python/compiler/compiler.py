@@ -2,10 +2,12 @@ from enum import Enum
 from io import TextIOWrapper
 import os
 import re
-from typing import Any, Iterator
+from typing import Any, Dict, Iterator
 
 REGEX_VARIABLE_NAME = "^[a-zA-Z_][a-zA-Z0-9_]*$"
-REGEX_VALUE_STRING = '^".*"$'
+REGEX_CONST_STRING = '^".*"$'
+REGEX_CONST_INTEGER = "^[-+]?[0-9]*$"
+REGEX_CONST_FLOAT = "^[-+]?[0-9]*\.?[0-9]+$"
 
 
 class WordTypeEnum(Enum):
@@ -15,11 +17,22 @@ class WordTypeEnum(Enum):
     COMMENT = 103
     VARIABLE_NAME = 104
 
-    VALUE = 200
+    CONST = 200
 
     OPERATOR_ASSIGNMENT_EQUALS = 300
     OPERATOR_ARITHMETIC_ADDITION = 320
     OPERATOR_ARITHMETIC_SUBSTRACTION = 321
+
+
+class ConstTypeDetail:
+    const_name: str
+    const_type: str
+    is_known: bool
+
+    def __init__(self, const_name: str, const_type: str, is_known: bool) -> None:
+        self.const_name = const_name
+        self.const_type = const_type
+        self.is_known = is_known
 
 
 class WordDetail:
@@ -85,7 +98,7 @@ class LineActionDetail:
 
 
 LINE_ACTION_EXPRESSIONS = {
-    f"{WordTypeEnum.OPERAND}{WordTypeEnum.OPERATOR_ASSIGNMENT_EQUALS}{WordTypeEnum.VALUE}": LineActionTypeEnum.SET_VARIABLE
+    f"{WordTypeEnum.VARIABLE_NAME.value}{WordTypeEnum.OPERATOR_ASSIGNMENT_EQUALS.value}{WordTypeEnum.CONST.value}": LineActionTypeEnum.SET_VARIABLE
 }
 
 
@@ -94,16 +107,47 @@ BASE_CPP_CODE = """
 using namespace std;
 
 int main()
-{
-    {0}
+{{
+{0}
     
     return 0;
-}
+}}
 """
 
 
+class SymbolTypeEnum(Enum):
+    VARIABLE = 1
+
+
+class SymbolVariableDetail:
+    variable_value: Any | None
+    variable_type: str
+
+    def __init__(self, variable_type: str, variable_value: Any | None = None) -> None:
+        self.variable_value = variable_value
+        self.variable_type = variable_type
+
+
+class SymbolDetail:
+    symbol_name: str
+    symbol_type: SymbolTypeEnum
+    type_detail: SymbolVariableDetail | None
+
+    def __init__(
+        self,
+        symbol_name: str,
+        symbol_type: SymbolTypeEnum,
+        type_detail: SymbolVariableDetail | None = None,
+    ) -> None:
+        self.symbol_name = symbol_name
+        self.symbol_type = symbol_type
+        self.type_detail = type_detail
+
+
 class Compiler:
-    __input_file: TextIOWrapper
+    def __init__(self) -> None:
+        self.__input_file: TextIOWrapper = None
+        self.__symbol_table: Dict[str, SymbolDetail] = {}
 
     def __read_lines(self) -> Iterator[str]:
         line_text = self.__input_file.readline()
@@ -112,10 +156,13 @@ class Compiler:
             line_text = self.__input_file.readline()
 
     def __split_words(self, text: str) -> Iterator[str]:
-        words: list[str] = text.split(" ")
+        split_pattern = " |" + "|".join([f"(\\{k})" for k in OPERATORS.keys()])
+        words: list[str] = re.split(split_pattern, text)
+
+        # words: list[str] = text.split(" ")
         for word in words:
-            if len(word) > 0:
-                yield word
+            if word and word.strip():
+                yield word.strip()
 
     def __lex_word(self, word: str) -> WordDetail:
         if word == COMMENT_WORD:
@@ -133,7 +180,35 @@ class Compiler:
         if is_variable_name:
             return WordDetail(word_type=WordTypeEnum.VARIABLE_NAME, word=word)
 
-        is_string_value = re.match(REGEX_VALUE_STRING, word)
+        is_string_value = re.match(REGEX_CONST_STRING, word)
+        if is_string_value:
+            return WordDetail(
+                word_type=WordTypeEnum.CONST,
+                word=word,
+                word_detail=ConstTypeDetail(
+                    const_name="string", const_type="string", is_known=True
+                ),
+            )
+
+        is_integer_value = re.match(REGEX_CONST_INTEGER, word)
+        if is_integer_value:
+            return WordDetail(
+                word_type=WordTypeEnum.CONST,
+                word=word,
+                word_detail=ConstTypeDetail(
+                    const_name="integer", const_type="int", is_known=True
+                ),
+            )
+
+        is_float_value = re.match(REGEX_CONST_FLOAT, word)
+        if is_float_value:
+            return WordDetail(
+                word_type=WordTypeEnum.CONST,
+                word=word,
+                word_detail=ConstTypeDetail(
+                    const_name="float", const_type="float", is_known=True
+                ),
+            )
 
         raise SyntaxError(f"'{word}' is not a valid word")
 
@@ -146,19 +221,14 @@ class Compiler:
             word_detail_list.append(word_detail)
 
         return word_detail_list
-        # if word_detail.word_type == WordTypeEnum.RESERVED_WORD:
-        #     reserved_word_detail: ReservedWordDetail = word_detail.detail
-        #     if (
-        #         reserved_word_detail.reserved_type
-        #         == ReservedWordTypeEnum.VALUE_TYPE
-        #     ):
-        #         pass
 
     def __parse_line(self, line: str) -> LineActionDetail:
         word_detail_list = self.__lex_line(line)
+        if len(word_detail_list) == 0:
+            return None
 
         line_expression = "".join(
-            [word_detail.word_type for word_detail in word_detail_list]
+            [str(word_detail.word_type.value) for word_detail in word_detail_list]
         )
 
         line_action_type = LINE_ACTION_EXPRESSIONS.get(line_expression)
@@ -174,12 +244,60 @@ class Compiler:
         compiled_text = ""
         for line in lines:
             line_detail = self.__parse_line(line)
+            if line_detail == None:
+                continue
+
+            compiled_text += "\t"
+
             if line_detail.line_action_type == LineActionTypeEnum.SET_VARIABLE:
-                variable_name = line_detail.line_word_details[0]
-                variable_value = line_detail.line_word_details[2]
-                compiled_text += f"int {variable_name} = {variable_value}"
+                compiled_text += self.__compile_set_variable(line_detail)
+
+            compiled_text += "\n"
 
         return compiled_text
+
+    def __compile_set_variable(self, line_detail: LineActionDetail) -> str:
+        variable_name = line_detail.line_word_details[0]
+        variable_value = line_detail.line_word_details[2]
+
+        variable_type_detail: ConstTypeDetail = variable_value.detail
+        variable_type = variable_type_detail.const_type
+
+        is_symbol_created = self.__create_or_update_symbol_variable(
+            variable_name.word, variable_value.word, variable_type
+        )
+        if is_symbol_created:
+            return f"{variable_type} {variable_name.word} = {variable_value.word};"
+        else:
+            return f"{variable_name.word} = {variable_value.word};"
+
+    def __create_or_update_symbol_variable(
+        self, variable_name: str, variable_value: str, variable_type: str
+    ) -> bool:
+        exists_symbol = self.__symbol_table.get(variable_name)
+
+        if exists_symbol:
+            if exists_symbol.symbol_type != SymbolTypeEnum.VARIABLE:
+                raise TypeError(f"Cannot use '{variable_name}': is not variable")
+
+            exists_variable_type = exists_symbol.type_detail.variable_type
+            if exists_variable_type != variable_type:
+                raise TypeError(
+                    f"Cannot declare '{variable_name}' as '{variable_type}': is already declared as '{exists_variable_type}'"
+                )
+
+            exists_symbol.type_detail.variable_value = variable_value
+            return False
+
+        else:
+            self.__symbol_table[variable_name] = SymbolDetail(
+                symbol_type=SymbolTypeEnum.VARIABLE,
+                symbol_name=variable_name,
+                type_detail=SymbolVariableDetail(
+                    variable_type=variable_type, variable_value=variable_value
+                ),
+            )
+            return True
 
     def compile_file(self, input_x_path: str, output_cpp_path: str):
         # TODO - check file types & exists
