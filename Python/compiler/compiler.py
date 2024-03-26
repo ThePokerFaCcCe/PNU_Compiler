@@ -258,47 +258,60 @@ class Compiler:
         return compiled_text
 
     def __compile_set_variable(self, line_detail: LineActionDetail) -> str:
-        variable_name = line_detail.line_word_details[0]
-        variable_value = line_detail.line_word_details[2]
+        variable_name = line_detail.line_word_details[0].word
 
-        variable_type_detail: ConstTypeDetail = variable_value.detail
-        variable_type = variable_type_detail.const_type
+        variable_value = ""
+        variable_type = None
 
-        is_symbol_created = self.__create_or_update_symbol_variable(
-            variable_name.word, variable_value.word, variable_type
-        )
-        if is_symbol_created:
-            return f"{variable_type} {variable_name.word} = {variable_value.word};"
-        else:
-            return f"{variable_name.word} = {variable_value.word};"
-
-    def __create_or_update_symbol_variable(
-        self, variable_name: str, variable_value: str, variable_type: str
-    ) -> bool:
-        exists_symbol = self.__symbol_table.get(variable_name)
-
-        if exists_symbol:
-            if exists_symbol.symbol_type != SymbolTypeEnum.VARIABLE:
+        symbol = self.__symbol_table.get(variable_name)
+        symbol_exists = False
+        if symbol:
+            if symbol.symbol_type != SymbolTypeEnum.VARIABLE:
                 raise TypeError(f"Cannot use '{variable_name}': is not variable")
 
-            exists_variable_type = exists_symbol.type_detail.variable_type
-            if exists_variable_type != variable_type:
-                raise TypeError(
-                    f"Cannot declare '{variable_name}' as '{variable_type}': is already declared as '{exists_variable_type}'"
-                )
-
-            exists_symbol.type_detail.variable_value = variable_value
-            return False
+            variable_type = symbol.type_detail.variable_type
+            symbol_exists = True
 
         else:
-            self.__symbol_table[variable_name] = SymbolDetail(
+            symbol = SymbolDetail(
                 symbol_type=SymbolTypeEnum.VARIABLE,
                 symbol_name=variable_name,
                 type_detail=SymbolVariableDetail(
                     variable_type=variable_type, variable_value=variable_value
                 ),
             )
-            return True
+
+        word_must_be_operator = False
+        for word_detail in line_detail.line_word_details[2:]:
+            word_variable_type = None
+            if word_must_be_operator and word_detail.word_type.name.startswith(
+                "OPERATOR_ARITHMETIC"
+            ):
+                word_must_be_operator = False
+                variable_value += f"{word_detail.word} "
+                continue
+            elif word_detail.word_type == WordTypeEnum.CONST:
+                variable_type_detail: ConstTypeDetail = word_detail.detail
+                word_variable_type = variable_type_detail.const_type
+                if variable_type and word_variable_type != variable_type:
+                    raise TypeError(
+                        f"Cannot assign '{variable_name}' as '{word_variable_type}': is already declared as '{variable_type}'"
+                    )
+            else:
+                raise SyntaxError("Invalid Syntax")
+
+            variable_type = word_variable_type
+            variable_value += f"{word_detail.word} "
+            word_must_be_operator = True
+
+        variable_value = variable_value.strip()
+        symbol.type_detail.variable_value = variable_value
+        self.__symbol_table[variable_name] = symbol
+
+        if symbol_exists:
+            return f"{variable_name} = {variable_value};"
+        else:
+            return f"{variable_type} {variable_name} = {variable_value};"
 
     def compile_file(self, input_x_path: str, output_cpp_path: str):
         # TODO - check file types & exists
