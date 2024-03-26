@@ -108,6 +108,12 @@ LINE_ACTION_DYNAMIC_EXPRESSIONS = {
 }
 
 
+class KnownValueTypesEnum(Enum):
+    STRING = "string"
+    NUM_INT = "int"
+    NUM_FLOAT = "float"
+
+
 BASE_CPP_CODE = """
 #include <iostream>
 using namespace std;
@@ -192,7 +198,9 @@ class Compiler:
                 word_type=WordTypeEnum.CONST,
                 word=word,
                 word_detail=ConstTypeDetail(
-                    const_name="string", const_type="string", is_known=True
+                    const_name=KnownValueTypesEnum.STRING.value,
+                    const_type=KnownValueTypesEnum.STRING.value,
+                    is_known=True,
                 ),
             )
 
@@ -202,7 +210,9 @@ class Compiler:
                 word_type=WordTypeEnum.CONST,
                 word=word,
                 word_detail=ConstTypeDetail(
-                    const_name="integer", const_type="int", is_known=True
+                    const_name=KnownValueTypesEnum.NUM_INT.value,
+                    const_type=KnownValueTypesEnum.NUM_INT.value,
+                    is_known=True,
                 ),
             )
 
@@ -212,7 +222,9 @@ class Compiler:
                 word_type=WordTypeEnum.CONST,
                 word=word,
                 word_detail=ConstTypeDetail(
-                    const_name="float", const_type="float", is_known=True
+                    const_name=KnownValueTypesEnum.NUM_FLOAT.value,
+                    const_type=KnownValueTypesEnum.NUM_FLOAT.value,
+                    is_known=True,
                 ),
             )
 
@@ -246,7 +258,7 @@ class Compiler:
 
         if line_action_type:
             return LineActionDetail(
-                line_action_type=action_type,
+                line_action_type=line_action_type,
                 line_word_details=word_detail_list,
             )
 
@@ -266,10 +278,56 @@ class Compiler:
                 compiled_text += self.__compile_set_variable(line_detail)
             elif line_detail.line_action_type == LineActionTypeEnum.IO_OUTPUT:
                 compiled_text += self.__compile_output_variable(line_detail)
+            elif line_detail.line_action_type == LineActionTypeEnum.IO_INPUT_INT:
+                compiled_text += self.__compile_input_int(line_detail)
 
             compiled_text += "\n"
 
         return compiled_text
+
+    def __compile_input_int(self, line_detail: LineActionDetail) -> str:
+        input_command_detail: ReservedWordDetail = line_detail.line_word_details[
+            0
+        ].detail
+        input_command = input_command_detail.word_in_cpp
+
+        variable_name = line_detail.line_word_details[1].word
+
+        symbol = self.__symbol_table.get(variable_name)
+        symbol_exists = False
+        if symbol:
+            if symbol.symbol_type != SymbolTypeEnum.VARIABLE:
+                raise TypeError(f"Cannot use '{variable_name}': is not variable")
+
+            symbol_exists = True
+
+        else:
+            symbol = SymbolDetail(
+                symbol_type=SymbolTypeEnum.VARIABLE,
+                symbol_name=variable_name,
+                type_detail=SymbolVariableDetail(
+                    variable_type=KnownValueTypesEnum.NUM_INT.value, variable_value=None
+                ),
+            )
+
+        numeric_types = [
+            type_enum.value
+            for type_enum in (
+                KnownValueTypesEnum.NUM_FLOAT,
+                KnownValueTypesEnum.NUM_INT,
+            )
+        ]
+        if symbol_exists and symbol.type_detail.variable_type not in numeric_types:
+            raise TypeError(f"Cannot use '{variable_name}': is not numeric type")
+
+        if symbol_exists:
+            return f"{input_command} {variable_name};"
+        else:
+            self.__symbol_table[variable_name] = symbol
+            return (
+                f"{symbol.type_detail.variable_type} {variable_name};\n"
+                + f"\t{input_command} {variable_name};"
+            )
 
     def __compile_output_variable(self, line_detail: LineActionDetail) -> str:
         output_command_detail: ReservedWordDetail = line_detail.line_word_details[
