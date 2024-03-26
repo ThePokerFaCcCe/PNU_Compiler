@@ -98,7 +98,7 @@ class LineActionDetail:
 
 
 LINE_ACTION_EXPRESSIONS = {
-    f"{WordTypeEnum.VARIABLE_NAME.value}{WordTypeEnum.OPERATOR_ASSIGNMENT_EQUALS.value}{WordTypeEnum.CONST.value}": LineActionTypeEnum.SET_VARIABLE
+    f"{WordTypeEnum.VARIABLE_NAME.value}{WordTypeEnum.OPERATOR_ASSIGNMENT_EQUALS.value}": LineActionTypeEnum.SET_VARIABLE
 }
 
 
@@ -231,11 +231,12 @@ class Compiler:
             [str(word_detail.word_type.value) for word_detail in word_detail_list]
         )
 
-        line_action_type = LINE_ACTION_EXPRESSIONS.get(line_expression)
-        if line_action_type:
-            return LineActionDetail(
-                line_action_type=line_action_type, line_word_details=word_detail_list
-            )
+        for expression, action_type in LINE_ACTION_EXPRESSIONS.items():
+            if line_expression.startswith(expression):
+                return LineActionDetail(
+                    line_action_type=action_type,
+                    line_word_details=word_detail_list,
+                )
 
         raise SyntaxError(f"Syntax Error Near {line}")
 
