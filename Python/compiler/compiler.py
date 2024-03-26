@@ -23,6 +23,9 @@ class WordTypeEnum(Enum):
     OPERATOR_ARITHMETIC_ADDITION = 320
     OPERATOR_ARITHMETIC_SUBSTRACTION = 321
 
+    IO_OUTPUT = 400
+    IO_INPUT_INT = 401
+
 
 class ConstTypeDetail:
     const_name: str
@@ -48,26 +51,23 @@ class WordDetail:
         self.word = word
 
 
-class ReservedWordTypeEnum(Enum):
-    VALUE_TYPE = WordTypeEnum.VALUE_TYPE
-
-
 class ReservedWordDetail:
-    reserved_type: ReservedWordTypeEnum
     word_in_cpp: str | None
 
-    def __init__(self, reserved_type: ReservedWordTypeEnum, word_in_cpp: str) -> None:
-        self.reserved_type = reserved_type
+    def __init__(self, word_in_cpp: str) -> None:
         self.word_in_cpp = word_in_cpp
 
 
 RESERVED_WORDS = {
-    "int": WordDetail(
-        word_type=WordTypeEnum.RESERVED_WORD,
-        word="int",
-        word_detail=ReservedWordDetail(
-            reserved_type=ReservedWordTypeEnum.VALUE_TYPE, word_in_cpp="int"
-        ),
+    "in": WordDetail(
+        word_type=WordTypeEnum.IO_INPUT_INT,
+        word="in",
+        word_detail=ReservedWordDetail(word_in_cpp="cin >>"),
+    ),
+    "out": WordDetail(
+        word_type=WordTypeEnum.IO_OUTPUT,
+        word="out",
+        word_detail=ReservedWordDetail(word_in_cpp="cout <<"),
     ),
 }
 
@@ -81,9 +81,11 @@ COMMENT_WORD = "//"
 
 
 class LineActionTypeEnum(Enum):
-    DECLARE_VARIABLE = 1
-    SET_VARIABLE = 2
-    DECLARE_AND_SET_VARIABLE = 3
+    # DECLARE_VARIABLE = 2
+    # DECLARE_AND_SET_VARIABLE = 3
+    SET_VARIABLE = 100
+    IO_OUTPUT = 200
+    IO_INPUT_INT = 201
 
 
 class LineActionDetail:
@@ -97,8 +99,12 @@ class LineActionDetail:
         self.line_word_details = line_word_details
 
 
-LINE_ACTION_EXPRESSIONS = {
-    f"{WordTypeEnum.VARIABLE_NAME.value}{WordTypeEnum.OPERATOR_ASSIGNMENT_EQUALS.value}": LineActionTypeEnum.SET_VARIABLE
+LINE_ACTION_STATIC_EXPRESSIONS = {
+    f"{WordTypeEnum.IO_INPUT_INT.value}{WordTypeEnum.VARIABLE_NAME.value}": LineActionTypeEnum.IO_INPUT_INT,
+}
+LINE_ACTION_DYNAMIC_EXPRESSIONS = {
+    f"{WordTypeEnum.IO_OUTPUT.value}": LineActionTypeEnum.IO_OUTPUT,
+    f"{WordTypeEnum.VARIABLE_NAME.value}{WordTypeEnum.OPERATOR_ASSIGNMENT_EQUALS.value}": LineActionTypeEnum.SET_VARIABLE,
 }
 
 
@@ -231,12 +237,18 @@ class Compiler:
             [str(word_detail.word_type.value) for word_detail in word_detail_list]
         )
 
-        for expression, action_type in LINE_ACTION_EXPRESSIONS.items():
-            if line_expression.startswith(expression):
-                return LineActionDetail(
-                    line_action_type=action_type,
-                    line_word_details=word_detail_list,
-                )
+        line_action_type = LINE_ACTION_STATIC_EXPRESSIONS.get(line_expression)
+        if not line_action_type:
+            for expression, action_type in LINE_ACTION_DYNAMIC_EXPRESSIONS.items():
+                if line_expression.startswith(expression):
+                    line_action_type = action_type
+                    break
+
+        if line_action_type:
+            return LineActionDetail(
+                line_action_type=action_type,
+                line_word_details=word_detail_list,
+            )
 
         raise SyntaxError(f"Syntax Error Near {line}")
 
@@ -252,10 +264,62 @@ class Compiler:
 
             if line_detail.line_action_type == LineActionTypeEnum.SET_VARIABLE:
                 compiled_text += self.__compile_set_variable(line_detail)
+            elif line_detail.line_action_type == LineActionTypeEnum.IO_OUTPUT:
+                compiled_text += self.__compile_output_variable(line_detail)
 
             compiled_text += "\n"
 
         return compiled_text
+
+    def __compile_output_variable(self, line_detail: LineActionDetail) -> str:
+        output_command_detail: ReservedWordDetail = line_detail.line_word_details[
+            0
+        ].detail
+        output_command = output_command_detail.word_in_cpp
+
+        variable_value = ""
+        variable_type = None
+        word_must_be_operator = False
+        for word_detail in line_detail.line_word_details[1:]:
+            word_variable_type = None
+            if word_must_be_operator and word_detail.word_type.name.startswith(
+                "OPERATOR_ARITHMETIC"
+            ):
+                word_must_be_operator = False
+                variable_value += f"{word_detail.word} "
+                continue
+
+            elif word_detail.word_type == WordTypeEnum.CONST:
+                variable_type_detail: ConstTypeDetail = word_detail.detail
+                word_variable_type = variable_type_detail.const_type
+                if variable_type and word_variable_type != variable_type:
+                    raise TypeError(
+                        f"Cannot use operators between '{word_variable_type}' and '{variable_type}': is not supported"
+                    )
+
+            elif word_detail.word_type == WordTypeEnum.VARIABLE_NAME:
+                word_symbol = self.__symbol_table.get(word_detail.word)
+                if not word_symbol:
+                    raise ValueError(f"variable '{word_detail.word}' is not defined")
+
+                if word_symbol.symbol_type != SymbolTypeEnum.VARIABLE:
+                    raise ValueError(f"'{word_detail.word}' is not a variable")
+
+                word_variable_type = word_symbol.type_detail.variable_type
+                if variable_type and word_variable_type != variable_type:
+                    raise TypeError(
+                        f"Cannot use operators between '{word_variable_type}' and '{variable_type}': is not supported"
+                    )
+
+            else:
+                raise SyntaxError("Invalid Syntax")
+
+            variable_value += f"{word_detail.word} "
+            variable_type = word_variable_type
+            word_must_be_operator = True
+
+        variable_value = variable_value.strip()
+        return f"{output_command} {variable_value};"
 
     def __compile_set_variable(self, line_detail: LineActionDetail) -> str:
         variable_name = line_detail.line_word_details[0].word
@@ -290,6 +354,7 @@ class Compiler:
                 word_must_be_operator = False
                 variable_value += f"{word_detail.word} "
                 continue
+
             elif word_detail.word_type == WordTypeEnum.CONST:
                 variable_type_detail: ConstTypeDetail = word_detail.detail
                 word_variable_type = variable_type_detail.const_type
@@ -297,15 +362,31 @@ class Compiler:
                     raise TypeError(
                         f"Cannot assign '{variable_name}' as '{word_variable_type}': is already declared as '{variable_type}'"
                     )
+
+            elif word_detail.word_type == WordTypeEnum.VARIABLE_NAME:
+                word_symbol = self.__symbol_table.get(word_detail.word)
+                if not word_symbol:
+                    raise ValueError(f"variable '{word_detail.word}' is not defined")
+
+                if word_symbol.symbol_type != SymbolTypeEnum.VARIABLE:
+                    raise ValueError(f"'{word_detail.word}' is not a variable")
+
+                word_variable_type = word_symbol.type_detail.variable_type
+                if variable_type and word_variable_type != variable_type:
+                    raise TypeError(
+                        f"Cannot assign '{variable_name}' as '{word_variable_type}': is already declared as '{variable_type}'"
+                    )
+
             else:
                 raise SyntaxError("Invalid Syntax")
 
-            variable_type = word_variable_type
             variable_value += f"{word_detail.word} "
+            variable_type = word_variable_type
             word_must_be_operator = True
 
         variable_value = variable_value.strip()
         symbol.type_detail.variable_value = variable_value
+        symbol.type_detail.variable_type = variable_type
         self.__symbol_table[variable_name] = symbol
 
         if symbol_exists:
