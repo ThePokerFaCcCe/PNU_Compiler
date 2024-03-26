@@ -4,9 +4,13 @@ using namespace std;
 
 int main()
 {
-	int a = 2;
+	int a;
+	cin >> a;
 	int b = 5;
-	cout << a + b + 4;
+	int result = a + b;
+	int result_plus_two = a + b + 2;
+	cout << result;
+	cout << result_plus_two;
 
     
     return 0;
