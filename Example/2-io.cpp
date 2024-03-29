@@ -10,7 +10,7 @@ int main()
 	int result = a + b;
 	int result_plus_two = a + b + 2;
 	cout << result;
-	cout << result_plus_two;
+	cout << result_plus_two + 4;
 
     
     return 0;
