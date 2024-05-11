@@ -6,8 +6,12 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Scanner;
 
+/**
+ * کلاس Compiler برای تبدیل کد زبان X به کد C++ استفاده می‌شود.
+ */
 public class Compiler {
 
+    // تعریف ثابت‌های نشانگر نوع توکن‌ها
     public static int IN = 1;
     public static int OUT = 2;
     public static int EQUALS = 3;
@@ -20,6 +24,12 @@ public class Compiler {
 
     public static Scanner console = new Scanner(System.in);
 
+    /**
+     * متدی برای خواندن محتوای یک فایل به صورت خط به خط
+     * 
+     * @param path مسیر فایل
+     * @return لیستی از خطوط فایل
+     */
     public static List<String> readFile(String path) {
         List<String> fileLines = new ArrayList<String>();
 
@@ -32,6 +42,12 @@ public class Compiler {
         return fileLines;
     }
 
+    /**
+     * متدی برای نوشتن محتوای رشته به یک فایل
+     * 
+     * @param path    مسیر فایل
+     * @param content محتوای قابل نوشتن
+     */
     public static void writeFile(String path, String content) {
         try {
             List<String> lines = Arrays.asList(content.split("\n"));
@@ -41,6 +57,13 @@ public class Compiler {
         }
     }
 
+    /**
+     * یک متد برای بررسی اینکه آیا یک رشته می‌تواند به صورت عدد صحیح تبدیل شود یا
+     * خیر
+     * 
+     * @param value رشته مورد بررسی
+     * @return true اگر رشته به عدد صحیح تبدیل شود، در غیر این صورت false
+     */
     public static boolean isStringInteger(String value) {
         try {
             Integer.parseInt(value);
@@ -50,6 +73,12 @@ public class Compiler {
         return true;
     }
 
+    /**
+     * یک متد برای بررسی اینکه آیا یک رشته نشانگر یک اپرند (عملگر) است یا خیر
+     * 
+     * @param value رشته مورد بررسی
+     * @return true اگر رشته یک اپرند باشد، در غیر این صورت false
+     */
     public static boolean isStringOperand(String value) {
         if (value.length() < 1)
             return false;
@@ -61,6 +90,12 @@ public class Compiler {
         return true;
     }
 
+    /**
+     * متدی برای تجزیه خط متنی به توکن‌ها
+     * 
+     * @param words لیستی از کلمات موجود در خط
+     * @return لیستی از توکن‌های تجزیه شده
+     */
     public static List<Integer> lexLine(String[] words) {
         List<Integer> tokens = new ArrayList<Integer>();
 
@@ -93,6 +128,12 @@ public class Compiler {
         return tokens;
     }
 
+    /**
+     * متدی برای تجزیه و تحلیل کد و تبدیل آن به کد C++
+     * 
+     * @param lines لیستی از خطوط کد زبان X
+     * @return کد C++ تولید شده
+     */
     public static String parse(List<String> lines) {
         String compiledCode = "";
 
@@ -200,6 +241,12 @@ public class Compiler {
         return compiledResult;
     }
 
+    /**
+     * متدی برای تبدیل یک فایل زبان X به کد C++
+     * 
+     * @param input  مسیر فایل ورودی زبان X
+     * @param output مسیر فایل خروجی کد C++
+     */
     public static void compileFile(String input, String output) {
         try {
             List<String> inputFileContent = readFile(input);
@@ -210,6 +257,11 @@ public class Compiler {
         }
     }
 
+    /**
+     * متد main برای اجرای برنامه
+     * 
+     * @param args آرگومان‌های خط فرمان
+     */
     public static void main(String[] args) throws Exception {
         if (args.length != 2) {
             System.out.println("Bad arguments given! example: java Compiler.java path/to/input path/to/output");

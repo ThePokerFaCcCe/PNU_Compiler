@@ -8,9 +8,8 @@ int main()
 	cin >> a;
 	int b = 5;
 	int result = a + b;
-	int result_plus_two = a + b + 2;
 	cout << result;
-	cout << result_plus_two + 4;
+	cout << result + 4;
 
     
     return 0;

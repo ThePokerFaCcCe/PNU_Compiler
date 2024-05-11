@@ -3,53 +3,33 @@ from .common import *
 from .core import Core
 
 
-BASE_CPP_CODE = """
-#include <iostream>
-using namespace std;
-
-int main()
-{{
-{0}
-    
-    return 0;
-}}
-"""
-
-
-class Compiler(Core):
-
-    def __init__(self, input_file_x_path: str, output_file_cpp_path: str) -> None:
-        super().__init__(input_file_x_path)
-        self.__output_file_cpp_path: str = output_file_cpp_path
+class Interpreter(Core):
 
     def _handle(self, line_details: Iterator[LineActionDetail]):
-        compiled_text = self.__compile(line_details)
+        for line in self._read_lines():
+            # Just for get SyntaxErrors
+            pass
 
         if not self._is_error_thrown:
-            self.__save_compiled_file(compiled_text, self.__output_file_cpp_path)
+            self._open_file()
+            self.__run(line_details)
 
-    def __compile(self, line_details: Iterator[LineActionDetail]) -> str:
-        compiled_text = ""
+        if self._is_error_thrown:
+            print("[!] Code Running Failed")
+        else:
+            print("[.] Code Runned Successfully")
+
+    def __run(self, line_details: Iterator[LineActionDetail]) -> str:
         for line_detail in line_details:
-            compiled_text += "\t"
 
             if line_detail.line_action_type == LineActionTypeEnum.SET_VARIABLE:
-                compile_line_result = self.__compile_set_variable(line_detail)
+                self.__run_set_variable(line_detail)
             elif line_detail.line_action_type == LineActionTypeEnum.IO_OUTPUT:
-                compile_line_result = self.__compile_output_variable(line_detail)
+                self.__run_output_variable(line_detail)
             elif line_detail.line_action_type == LineActionTypeEnum.IO_INPUT_INT:
-                compile_line_result = self.__compile_input_int(line_detail)
+                self.__run_input_int(line_detail)
 
-            if compile_line_result:
-                compiled_text += compile_line_result
-            compiled_text += "\n"
-
-        return BASE_CPP_CODE.format(compiled_text)
-
-    def __compile_input_int(self, line_detail: LineActionDetail) -> str:
-        input_command_detail: ReservedWordTypeDetail = line_detail.line_word_details[0].detail
-        input_command = input_command_detail.word_in_cpp
-
+    def __run_input_int(self, line_detail: LineActionDetail) -> str:
         variable_name = line_detail.line_word_details[1].word
 
         symbol = self._symbol_table.get(variable_name)
@@ -75,16 +55,39 @@ class Compiler(Core):
             self._print_error("TypeError", f"Cannot use '{variable_name}': is not numeric type")
             return
 
-        if symbol_exists:
-            return f"{input_command} {variable_name};"
-        else:
-            self._symbol_table[variable_name] = symbol
-            return f"{symbol.type_detail.variable_type} {variable_name};\n" + f"\t{input_command} {variable_name};"
+        input_value = None
+        input_type = None
+        while True:
+            try:
+                input_value = input(">>> Enter a number: ")
+                input_value = float(input_value)
+                input_type = ConstWordTypeKnownTypesEnum.NUM_FLOAT.value
 
-    def __compile_output_variable(self, line_detail: LineActionDetail) -> str:
-        output_command_detail: ReservedWordTypeDetail = line_detail.line_word_details[0].detail
-        output_command = output_command_detail.word_in_cpp
+                try:
+                    input_value = int(input_value)
+                    input_type = ConstWordTypeKnownTypesEnum.NUM_INT.value
+                except Exception:
+                    pass
 
+                break
+
+            except Exception:
+                print("[!!!] Enter a valid number.")
+                continue
+
+        if symbol_exists and symbol.type_detail.variable_type != input_type:
+            self._print_error(
+                "TypeError",
+                f"Cannot assign '{variable_name}' as '{input_type}': is already declared as '{symbol.type_detail.variable_type}'",
+            )
+            return
+
+        symbol.type_detail.variable_value = input_value
+        symbol.type_detail.variable_type = input_type
+
+        self._symbol_table[variable_name] = symbol
+
+    def __run_output_variable(self, line_detail: LineActionDetail) -> str:
         variable_value = ""
         variable_type = None
         word_must_be_operator = False
@@ -105,6 +108,8 @@ class Compiler(Core):
                     )
                     return
 
+                variable_value += f"{word_detail.word} "
+
             elif word_detail.word_type == WordTypeEnum.VARIABLE_NAME:
                 word_symbol = self._symbol_table.get(word_detail.word)
                 if not word_symbol:
@@ -122,18 +127,23 @@ class Compiler(Core):
                     )
                     return
 
+                variable_value = f"{word_symbol.type_detail.variable_value} "
+
             else:
                 self._print_error("SyntaxError")
                 return
 
-            variable_value += f"{word_detail.word} "
             variable_type = word_variable_type
             word_must_be_operator = True
 
-        variable_value = variable_value.strip()
-        return f"{output_command} {variable_value};"
+        if variable_type in NUMERIC_TYPES or len(line_detail.line_word_details) > 1:
+            calculated_value = eval(variable_value)
+        else:
+            calculated_value = variable_value
 
-    def __compile_set_variable(self, line_detail: LineActionDetail) -> str:
+        print(calculated_value)
+
+    def __run_set_variable(self, line_detail: LineActionDetail) -> str:
         variable_name = line_detail.line_word_details[0].word
 
         variable_value = ""
@@ -174,6 +184,8 @@ class Compiler(Core):
                     )
                     return
 
+                variable_value += f"{word_detail.word} "
+
             elif word_detail.word_type == WordTypeEnum.VARIABLE_NAME:
                 word_symbol = self._symbol_table.get(word_detail.word)
                 if not word_symbol:
@@ -189,28 +201,20 @@ class Compiler(Core):
                         f"Cannot assign '{variable_name}' as '{word_variable_type}': is already declared as '{variable_type}'",
                     )
                     return
+
+                variable_value += f"{word_symbol.type_detail.variable_value} "
             else:
                 self._print_error("SyntaxError")
                 return
 
-            variable_value += f"{word_detail.word} "
             variable_type = word_variable_type
             word_must_be_operator = True
 
-        variable_value = variable_value.strip()
-        symbol.type_detail.variable_value = variable_value
+        if variable_type in NUMERIC_TYPES:
+            calculated_value = eval(variable_value)
+        else:
+            calculated_value = variable_value
+
+        symbol.type_detail.variable_value = calculated_value
         symbol.type_detail.variable_type = variable_type
         self._symbol_table[variable_name] = symbol
-
-        if symbol_exists:
-            return f"{variable_name} = {variable_value};"
-        else:
-            return f"{variable_type} {variable_name} = {variable_value};"
-
-    def __save_compiled_file(self, compiled_text: str, output_cpp_path: str):
-        try:
-            with open(output_cpp_path, "w", encoding="utf-8") as output_file:
-                output_file.write(compiled_text)
-        except Exception as ex:
-            self.__input_file.close()
-            print(f"Error save file to '{output_cpp_path}' : {ex}")
